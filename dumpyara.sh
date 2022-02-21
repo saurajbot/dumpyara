@@ -2,6 +2,8 @@
 
 [[ $# = 0 ]] && echo "No Input" && exit 1
 
+M_ID=$(< "${PROJECT_DIR}"/.tg_mid)
+C_ID=$(< "${PROJECT_DIR}"/.tg_cid)
 OS=`uname`
 if [ "$OS" = 'Darwin' ]; then
     export LC_CTYPE=C
@@ -14,8 +16,11 @@ mkdir -p "$PROJECT_DIR"/input "$PROJECT_DIR"/working
 # GitHub token
 if [[ -n $2 ]]; then
     GIT_OAUTH_TOKEN=$2
-elif [[ -f ".githubtoken" ]]; then
-    GIT_OAUTH_TOKEN=$(< .githubtoken)
+if [[ -s "${PROJECT_DIR}"/.gitlab_token ]]; then
+    GITLAB_TOKEN=$(< "${PROJECT_DIR}"/.gitlab_token)
+    export LAB_CORE_TOKEN="$GITLAB_TOKEN"
+    GITLAB_INSTANCE=gitlab.com
+    LAB_CORE_HOST=https://"$GITLAB_INSTANCE"
 else
     echo "GitHub token not found. Dumping just locally..."
 fi
@@ -36,7 +41,7 @@ else
     [[ -e "$URL" ]] || { echo "Invalid Input" && exit 1; }
 fi
 
-ORG=AndroidDumps #your GitHub org name
+ORG="sauraj-dumps" #your GitHub org name
 FILE=$(echo ${URL##*/} | inline-detox)
 EXTENSION=$(echo ${URL##*.} | inline-detox)
 UNZIP_DIR=${FILE/.$EXTENSION/}
@@ -202,40 +207,38 @@ chown "$(whoami)" ./* -R
 chmod -R u+rwX ./* #ensure final permissions
 find "$PROJECT_DIR"/working/"${UNZIP_DIR}" -type f -printf '%P\n' | sort | grep -v ".git/" > "$PROJECT_DIR"/working/"${UNZIP_DIR}"/all_files.txt
 
-if [[ -n $GIT_OAUTH_TOKEN ]]; then
-    curl --silent --fail "https://raw.githubusercontent.com/$ORG/$repo/$branch/all_files.txt" 2> /dev/null && echo "Firmware already dumped!" && exit 1
-    git init
-    if [[ -z "$(git config --get user.email)" ]]; then
-        git config user.email AndroidDumps@github.com
-    fi
-    if [[ -z "$(git config --get user.name)" ]]; then
-        git config user.name AndroidDumps
-    fi
-    git checkout -b "$branch"
-    find . -size +97M -printf '%P\n' -o -name "*sensetime*" -printf '%P\n' -o -name "*.lic" -printf '%P\n' >| .gitignore
-    git add --all
+if [[ -n $GITLAB_TOKEN ]]; then
+    curl -sf "https://"$GITLAB_INSTANCE"/${GIT_ORG}/${REPO}/-/raw/${branch}/all_files.txt" | grep "all_files.txt" && { printf "Firmware already dumped!\nGo to https://"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}/-/tree/${branch}\n" && exit 1; }  #add grep to fix gitlab login error
 
-    curl -s -X POST -H "Authorization: token ${GIT_OAUTH_TOKEN}" -d '{ "name": "'"$repo"'" }' "https://api.github.com/orgs/${ORG}/repos" #create new repo
-    curl -s -X PUT -H "Authorization: token ${GIT_OAUTH_TOKEN}" -H "Accept: application/vnd.github.mercy-preview+json" -d '{ "names": ["'"$manufacturer"'","'"$platform"'","'"$top_codename"'"]}' "https://api.github.com/repos/${ORG}/${repo}/topics"
-    git remote add origin https://github.com/$ORG/"${repo,,}".git
-    git commit -asm "Add ${description}"
-    git push https://"$GIT_OAUTH_TOKEN"@github.com/$ORG/"${repo,,}".git "$branch" ||
-        (
-            git update-ref -d HEAD
-            git reset system/ vendor/
-            git checkout -b "$branch"
-            git commit -asm "Add extras for ${description}"
-            git push https://"$GIT_OAUTH_TOKEN"@github.com/$ORG/"${repo,,}".git "$branch"
-            git add vendor/
-            git commit -asm "Add vendor for ${description}"
-            git push https://"$GIT_OAUTH_TOKEN"@github.com/$ORG/"${repo,,}".git "$branch"
-            git add system/system/app/ system/system/priv-app/ || git add system/app/ system/priv-app/
-            git commit -asm "Add apps for ${description}"
-            git push https://"$GIT_OAUTH_TOKEN"@github.com/$ORG/"${repo,,}".git "$branch"
-            git add system/
-            git commit -asm "Add system for ${description}"
-            git push https://"$GIT_OAUTH_TOKEN"@github.com/$ORG/"${repo,,}".git "$branch"
-        )
+    git init		# Insure Your GitLab Authorization Before Running This Script
+	git config --global http.postBuffer 524288000		# A Simple Tuning to Get Rid of curl (18) error while `git push`
+	git checkout -b "${branch}"
+	find . \( -name "*sensetime*" -o -name "*.lic" \) | cut -d'/' -f'2-' >| .gitignore
+	[[ ! -s .gitignore ]] && rm .gitignore
+	git add --all
+	if [[ "${GIT_ORG}" == "${GIT_USER}" ]]; then
+		lab project create ${repo} -d "${description}" --public
+	else
+		lab project create -g "${GIT_ORG}" "${repo}" -d "${description}" --public
+	fi
+	git remote add origin https://"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}.git
+	git commit -asm "Add ${description}"
+	{ [[ $(du -bs .) -lt 1288490188 ]] && git push https://${GIT_USER}:${GITLAB_TOKEN}@"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}.git "${branch}"; } || (
+		git update-ref -d HEAD
+		git reset system/ vendor/
+		git checkout -b "${branch}"
+		git commit -asm "Add extras for ${description}"
+		git push https://${GIT_USER}:${GITLAB_TOKEN}@"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}.git "${branch}"
+		git add vendor/
+		git commit -asm "Add vendor for ${description}"
+		git push https://${GIT_USER}:${GITLAB_TOKEN}@"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}.git "${branch}"
+		git add system/system/app/ system/system/priv-app/ || git add system/app/ system/priv-app/
+		git commit -asm "Add apps for ${description}"
+		git push https://${GIT_USER}:${GITLAB_TOKEN}@"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}.git "${branch}"
+		git add system/
+		git commit -asm "Add system for ${description}"
+		git push https://${GIT_USER}:${GITLAB_TOKEN}@"$GITLAB_INSTANCE"/${GIT_ORG}/${repo}.git "${branch}"
+	)
 else
     echo "Dump done locally."
     exit 1
@@ -244,7 +247,7 @@ fi
 # Telegram channel
 TG_TOKEN=$(< "$PROJECT_DIR"/.tgtoken)
 if [[ -n "$TG_TOKEN" ]]; then
-    CHAT_ID="@android_dumps"
+    CHAT_ID="@saurajdumps"
     commit_head=$(git log --format=format:%H | head -n 1)
     commit_link="https://github.com/$ORG/$repo/commit/$commit_head"
     echo -e "Sending telegram notification"
