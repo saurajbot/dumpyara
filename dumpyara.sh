@@ -16,6 +16,7 @@ mkdir -p "$PROJECT_DIR"/input "$PROJECT_DIR"/working
 # GitHub token
 if [[ -n $2 ]]; then
     GIT_OAUTH_TOKEN=$2
+fi    
 if [[ -s "${PROJECT_DIR}"/.gitlab_token ]]; then
     GITLAB_TOKEN=$(< "${PROJECT_DIR}"/.gitlab_token)
     export LAB_CORE_TOKEN="$GITLAB_TOKEN"
